@@ -1,0 +1,156 @@
+# Prometheus Alert Rules for ObserveAI
+groups:
+  - name: observeai_application_alerts
+    interval: 30s
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: |
+          rate(application_errors_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          component: api-service
+        annotations:
+          summary: "High error rate detected"
+          description: "Application error rate is {{ $value | humanize }} errors/sec for {{ $labels.kubernetes_pod_name }}"
+          runbook: "Check application logs and recent deployments"
+
+      # HTTP 5xx errors
+      - alert: HighServerErrors
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: api-service
+        annotations:
+          summary: "High rate of 5xx HTTP errors"
+          description: "5xx error rate is {{ $value | humanize }} req/sec on {{ $labels.pod }}"
+          runbook: "Investigate server errors in logs immediately"
+
+      # High request latency
+      - alert: HighRequestLatency
+        expr: |
+          histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 3m
+        labels:
+          severity: warning
+          component: api-service
+        annotations:
+          summary: "High request latency (p95)"
+          description: "95th percentile latency is {{ $value | humanize }}s for {{ $labels.endpoint }}"
+          runbook: "Check for slow database queries or external API calls"
+
+  - name: observeai_infrastructure_alerts
+    interval: 30s
+    rules:
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: |
+          rate(container_cpu_usage_seconds_total{namespace="observeai-apps"}[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High CPU usage detected"
+          description: "Pod {{ $labels.pod }} CPU usage is {{ $value | humanizePercentage }}"
+          runbook: "Check for CPU-intensive operations or consider scaling"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_usage_bytes{namespace="observeai-apps"} / container_spec_memory_limit_bytes{namespace="observeai-apps"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High memory usage detected"
+          description: "Pod {{ $labels.pod }} memory usage is {{ $value | humanizePercentage }}"
+          runbook: "Check for memory leaks or increase memory limits"
+
+      # Pod restart alert
+      - alert: PodRestarting
+        expr: |
+          rate(kube_pod_container_status_restarts_total{namespace="observeai-apps"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Pod is restarting frequently"
+          description: "Pod {{ $labels.pod }} has restarted {{ $value }} times"
+          runbook: "Check pod logs and events for crash reasons"
+
+  - name: observeai_availability_alerts
+    interval: 30s
+    rules:
+      # Service down
+      - alert: ServiceDown
+        expr: |
+          up{job="api-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: api-service
+        annotations:
+          summary: "API service is down"
+          description: "Service {{ $labels.job }} on {{ $labels.pod }} is unreachable"
+          runbook: "Check pod status and logs immediately"
+
+      # Low replica count
+      - alert: InsufficientReplicas
+        expr: |
+          kube_deployment_status_replicas_available{namespace="observeai-apps", deployment="api-service"} < 2
+        for: 2m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Insufficient replicas available"
+          description: "Only {{ $value }} replica(s) available for api-service (expected: 2)"
+          runbook: "Check for pod crashes or resource constraints"
+
+      # Too many replicas (might indicate scaling issue)
+      - alert: TooManyReplicas
+        expr: |
+          kube_deployment_status_replicas{namespace="observeai-apps", deployment="api-service"} > 5
+        for: 10m
+        labels:
+          severity: info
+          component: infrastructure
+        annotations:
+          summary: "High replica count detected"
+          description: "{{ $value }} replicas running for api-service"
+          runbook: "Verify autoscaling configuration"
+
+  - name: observeai_performance_alerts
+    interval: 30s
+    rules:
+      # Request rate spike
+      - alert: RequestRateSpike
+        expr: |
+          rate(http_requests_total{namespace="observeai-apps"}[5m]) > 100
+        for: 3m
+        labels:
+          severity: info
+          component: api-service
+        annotations:
+          summary: "Unusual spike in request rate"
+          description: "Request rate is {{ $value | humanize }} req/sec (may indicate traffic spike or attack)"
+          runbook: "Monitor for DDoS or legitimate traffic surge"
+
+      # Slow endpoint
+      - alert: SlowEndpoint
+        expr: |
+          histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{endpoint="/api/slow"}[5m])) > 5
+        for: 2m
+        labels:
+          severity: info
+          component: api-service
+        annotations:
+          summary: "Endpoint performing slowly"
+          description: "{{ $labels.endpoint }} p99 latency is {{ $value | humanize }}s"
+          runbook: "This is expected for /api/slow endpoint - ignore if testing"

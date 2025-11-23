@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: observeai
+  labels:
+    app: prometheus
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        component: monitoring
+    spec:
+      serviceAccountName: prometheus  # Use the ServiceAccount we created
+      
+      # Security context
+      securityContext:
+        fsGroup: 65534  # "nobody" user group
+        runAsNonRoot: true
+        runAsUser: 65534  # Run as "nobody" user for security
+      
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.48.0  # Official Prometheus image
+        imagePullPolicy: IfNotPresent
+        
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus'
+          - '--storage.tsdb.retention.time=15d'  # Keep metrics for 15 days
+          - '--web.enable-lifecycle'  # Allow reloading config via API
+          - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+          - '--web.console.templates=/usr/share/prometheus/consoles'
+        
+        ports:
+        - name: web
+          containerPort: 9090
+          protocol: TCP
+        
+        # Resource limits
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        
+        # Liveness probe - is Prometheus alive?
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9090
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        # Readiness probe - is Prometheus ready to serve traffic?
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9090
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        # Volume mounts
+        volumeMounts:
+        # Mount ConfigMap as files
+        - name: config
+          mountPath: /etc/prometheus
+          readOnly: true
+        
+        # Mount storage for metrics data
+        - name: storage
+          mountPath: /prometheus
+      
+      # Volumes
+      volumes:
+      # ConfigMap volume
+      - name: config
+        configMap:
+          name: prometheus-config
+          defaultMode: 420
+      
+      # Storage volume (emptyDir for now - data lost on pod restart)
+      # For production, use PersistentVolumeClaim
+      - name: storage
+        emptyDir: {}
+      
+      # Node selector (optional - can specify which node to run on)
+      # nodeSelector:
+      #   node-role: monitoring
+      
+      # Tolerations (optional - allow scheduling on tainted nodes)
+      # tolerations:
+      # - key: "monitoring"
+      #   operator: "Equal"
+      #   value: "true"
+      #   effect: "NoSchedule"
