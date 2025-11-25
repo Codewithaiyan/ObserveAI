@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: observeai
+  labels:
+    app: elasticsearch
+    component: logging
+spec:
+  serviceName: elasticsearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        component: logging
+    spec:
+      containers:
+      - name: elasticsearch
+        image: elasticsearch:7.17.10
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - name: rest
+          containerPort: 9200
+        - name: inter-node
+          containerPort: 9300
+
+        env:
+        - name: cluster.name
+          value: observeai-logs
+        - name: node.name
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: discovery.type
+          value: single-node
+
+        # FIXED HEAP
+        - name: ES_JAVA_OPTS
+          value: "-Xms1g -Xmx1g"
+
+        - name: xpack.security.enabled
+          value: "false"
+        - name: bootstrap.memory_lock
+          value: "false"
+
+        # FIXED RESOURCE LIMITS
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1.5Gi
+          limits:
+            cpu: 1
+            memory: 2Gi
+
+        livenessProbe:
+          httpGet:
+            path: /_cluster/health
+            port: 9200
+          initialDelaySeconds: 120
+          periodSeconds: 10
+
+        readinessProbe:
+          httpGet:
+            path: /_cluster/health
+            port: 9200
+          initialDelaySeconds: 90
+          periodSeconds: 10
+
+        volumeMounts:
+        - name: data
+          mountPath: /usr/share/elasticsearch/data
+
+      volumes:
+      - name: data
+        emptyDir: {}
+

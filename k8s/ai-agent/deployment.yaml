@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  namespace: observeai
+  labels:
+    app: ai-agent
+    component: monitoring
+spec:
+  replicas: 1  # Single instance for now
+  selector:
+    matchLabels:
+      app: ai-agent
+  template:
+    metadata:
+      labels:
+        app: ai-agent
+        component: monitoring
+    spec:
+      # Node selector (optional - for dedicated monitoring node)
+      # nodeSelector:
+      #   role: monitoring
+      
+      containers:
+      - name: ai-agent
+        image: codewithaiyan/observeai-agent:v1.0
+        imagePullPolicy: IfNotPresent
+        
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: ai-agent-config
+        
+        # Environment variables from Secret
+        env:
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-agent-secrets
+              key: anthropic-api-key
+        
+        # Resource limits
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        
+        # Liveness probe - restart if unhealthy
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Readiness probe - remove from service if not ready
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Volume mounts
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      
+      # Volumes
+      volumes:
+      - name: data
+        emptyDir: {}  # For SQLite database (data lost on pod restart)
+        # For production, use PersistentVolumeClaim
