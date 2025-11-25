@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: observeai
+  labels:
+    app: filebeat
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+    - type: container
+      paths:
+        - /var/log/containers/*observeai-apps*.log
+      
+      processors:
+        - add_kubernetes_metadata:
+            host: ${NODE_NAME}
+            matchers:
+            - logs_path:
+                logs_path: "/var/log/containers/"
+    
+    output.elasticsearch:
+      hosts: ["http://elasticsearch.observeai.svc.cluster.local:9200"]
+      index: "logs-%{+yyyy.MM.dd}"
+    
+    setup.template.name: "observeai-logs"
+    setup.template.pattern: "logs-*"
+    setup.ilm.enabled: false
+    
+    logging.level: debug
+    logging.to_stderr: true

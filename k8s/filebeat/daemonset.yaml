@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: observeai
+  labels:
+    app: filebeat
+    component: logging
+spec:
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    metadata:
+      labels:
+        app: filebeat
+        component: logging
+    spec:
+      serviceAccountName: filebeat
+      terminationGracePeriodSeconds: 30
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      
+      containers:
+      - name: filebeat
+        image: docker.elastic.co/beats/filebeat:7.17.10
+        args: [
+          "-c", "/etc/filebeat.yml",
+          "-e"
+        ]
+        
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: ELASTICSEARCH_HOST
+          value: "elasticsearch.observeai.svc.cluster.local"
+        - name: ELASTICSEARCH_PORT
+          value: "9200"
+        
+        securityContext:
+          runAsUser: 0
+          privileged: false
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+          limits:
+            cpu: 200m
+            memory: 200Mi
+        
+        volumeMounts:
+        # Filebeat config
+        - name: config
+          mountPath: /etc/filebeat.yml
+          readOnly: true
+          subPath: filebeat.yml
+        
+        # Container logs
+        - name: varlogcontainers
+          mountPath: /var/log/containers
+          readOnly: true
+        
+        # Pod logs
+        - name: varlogpods
+          mountPath: /var/log/pods
+          readOnly: true
+        
+        # Docker logs (if using Docker runtime)
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+      
+      volumes:
+      # Config from ConfigMap
+      - name: config
+        configMap:
+          name: filebeat-config
+          defaultMode: 0644
+      
+      # Host paths for logs
+      - name: varlogcontainers
+        hostPath:
+          path: /var/log/containers
+      
+      - name: varlogpods
+        hostPath:
+          path: /var/log/pods
+      
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers

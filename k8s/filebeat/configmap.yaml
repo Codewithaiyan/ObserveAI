@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: observeai
+  labels:
+    app: filebeat
+    component: logging
+data:
+  filebeat.yml: |
+    # Filebeat configuration for ObserveAI
+    filebeat.inputs:
+    - type: container
+      paths:
+        - /var/log/containers/*observeai-apps*.log
+      
+      # Only read logs from observeai-apps namespace
+      include_lines: ['^{']
+      
+      # Parse JSON logs
+      json.keys_under_root: true
+      json.add_error_key: true
+      json.message_key: message
+      json.ignore_decoding_error: true
+      
+      # Add Kubernetes metadata
+      processors:
+        - add_kubernetes_metadata:
+            host: ${NODE_NAME}
+            matchers:
+            - logs_path:
+                logs_path: "/var/log/containers/"
+        
+        # Decode JSON log field if nested
+        - decode_json_fields:
+            fields: ["message"]
+            target: ""
+            overwrite_keys: true
+            add_error_key: true
+        
+        # Add custom fields
+        - add_fields:
+            target: ''
+            fields:
+              cluster: observeai-cluster
+              environment: production
+    
+    # Elasticsearch output
+    output.elasticsearch:
+      hosts: ["http://elasticsearch.observeai.svc.cluster.local:9200"]
+      
+      # Index settings
+      index: "logs-%{+yyyy.MM.dd}"
+      
+      # Bulk settings
+      bulk_max_size: 1000
+      worker: 2
+      
+      # Connection settings
+      timeout: 90
+      max_retries: 3
+    
+    # Index template settings
+    setup.template.name: "observeai-logs"
+    setup.template.pattern: "logs-*"
+    setup.template.enabled: true
+    setup.template.overwrite: false
+    
+    # ILM settings
+    setup.ilm.enabled: false
+    
+    # Logging settings
+    logging.level: info
+    logging.to_files: false
+    logging.to_stderr: true
+    logging.metrics.enabled: false
