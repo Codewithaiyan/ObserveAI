@@ -1,18 +1,21 @@
 """
-Continuous log monitoring
+Continuous log monitoring with advanced detection and adaptive baseline
 """
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Optional
-from models.incident import Incident, MonitoringState, LogEntry
+from models.incident import Incident, MonitoringState, LogEntry, Anomaly
 from clients.elasticsearch_client import es_client
 from monitors.anomaly_detector import detector
+from monitors.advanced.timeseries_analyzer import ts_analyzer
+from monitors.advanced.correlation_engine import correlation_engine
+from monitors.advanced.adaptive_baseline import adaptive_baseline
 from utils.logger import logger
 from config.settings import settings
 
 
 class LogMonitor:
-    """Monitors logs continuously and detects anomalies"""
+    """Monitors logs continuously with ML-powered detection"""
     
     def __init__(self):
         self.state = MonitoringState(
@@ -21,17 +24,26 @@ class LogMonitor:
         )
         self.running = False
         self.incidents: List[Incident] = []
+        self.check_count = 0
     
     async def start(self):
-        """Start continuous monitoring"""
+        """Start continuous monitoring with adaptive learning"""
         self.running = True
         self.state.status = "healthy"
         
-        logger.info("Starting log monitor", interval=settings.log_check_interval)
+        baseline_confidence = adaptive_baseline.get_confidence()
+        
+        logger.info(
+            "Starting log monitor with ML detection",
+            interval=settings.log_check_interval,
+            baseline_confidence=baseline_confidence,
+            adaptive_learning="enabled"
+        )
         
         while self.running:
             try:
                 await self._check_logs()
+                self.check_count += 1
                 await asyncio.sleep(settings.log_check_interval)
             
             except Exception as e:
@@ -46,10 +58,14 @@ class LogMonitor:
         logger.info("Log monitor stopped")
     
     async def _check_logs(self):
-        """Check logs for anomalies"""
+        """Check logs with full ML detection pipeline"""
         check_start = datetime.utcnow()
         
-        logger.debug("Checking logs for anomalies")
+        logger.debug(
+            "ML monitoring cycle",
+            check_number=self.check_count,
+            baseline_confidence=adaptive_baseline.get_confidence()
+        )
         
         # 1. Check Elasticsearch health
         es_healthy = await es_client.health_check()
@@ -77,29 +93,143 @@ class LogMonitor:
             self.state.last_check = check_start
             return
         
-        logger.info("Processing logs", count=len(logs))
+        logger.info(
+            "Processing logs with ML pipeline",
+            count=len(logs),
+            check=self.check_count
+        )
         
-        # 3. Run anomaly detection
-        anomalies = detector.analyze_logs(logs)
+        # 3. Calculate metrics
+        error_count = sum(
+            1 for log in logs
+            if "ERROR" in log.get("level", "") or "error" in log.get("message", "").lower()
+        )
         
-        self.state.anomalies_detected += len(anomalies)
+        log_volume = len(logs)
         
-        # 4. Create incident if critical anomalies detected
-        critical_anomalies = [a for a in anomalies if a.severity in ["critical", "high"]]
+        # 4. Update adaptive baseline (learning phase)
+        adaptive_baseline.update(
+            error_rate=error_count,
+            log_volume=log_volume,
+            timestamp=check_start
+        )
+        
+        # 5. Check against adaptive baseline
+        baseline_anomalies = []
+        is_anomalous, baseline_details = adaptive_baseline.is_anomalous(
+            error_rate=error_count,
+            log_volume=log_volume,
+            timestamp=check_start,
+            sensitivity=2.0  # 2 standard deviations
+        )
+        
+        if is_anomalous:
+            # Create anomaly from baseline detection
+            severity = "critical" if abs(baseline_details['error_rate']['z_score']) > 3 else "high"
+            score = min(1.0, abs(baseline_details['error_rate']['z_score']) / 3)
+            
+            baseline_anomaly = Anomaly(
+                anomaly_type="adaptive_baseline_deviation",
+                severity=severity,
+                score=score,
+                description=f"Deviation from learned baseline: {baseline_details['error_rate']['current']:.1f} errors (expected {baseline_details['error_rate']['expected']:.1f}±{baseline_details['error_rate']['std']:.1f})",
+                metrics=baseline_details
+            )
+            
+            baseline_anomalies.append(baseline_anomaly)
+            
+            logger.warning(
+                "Adaptive baseline anomaly detected",
+                error_z_score=baseline_details['error_rate']['z_score'],
+                volume_z_score=baseline_details['log_volume']['z_score']
+            )
+        
+        # 6. Add data point to time-series analyzer
+        ts_analyzer.add_datapoint(
+            error_count=error_count,
+            log_volume=log_volume
+        )
+        
+        # 7. Run basic anomaly detection
+        basic_anomalies = detector.analyze_logs(logs)
+        
+        # 8. Run advanced time-series analysis (every 3rd check)
+        ts_anomalies = []
+        if self.check_count % 3 == 0:
+            logger.debug("Running time-series analysis")
+            ts_anomalies = ts_analyzer.analyze_patterns()
+            
+            if ts_anomalies:
+                logger.info(
+                    "Time-series patterns detected",
+                    count=len(ts_anomalies),
+                    types=[a.anomaly_type for a in ts_anomalies]
+                )
+        
+        # 9. Run correlation analysis (every 2nd check)
+        corr_anomalies = []
+        if self.check_count % 2 == 0:
+            logger.debug("Running correlation analysis")
+            corr_anomalies = correlation_engine.analyze_correlations(logs)
+            
+            if corr_anomalies:
+                logger.info(
+                    "Correlations detected",
+                    count=len(corr_anomalies),
+                    types=[a.anomaly_type for a in corr_anomalies]
+                )
+        
+        # 10. Combine all anomalies
+        all_anomalies = (
+            baseline_anomalies +
+            basic_anomalies +
+            ts_anomalies +
+            corr_anomalies
+        )
+        
+        self.state.anomalies_detected += len(all_anomalies)
+        
+        # 11. Log detection summary
+        if all_anomalies:
+            logger.info(
+                "Anomalies detected in cycle",
+                total=len(all_anomalies),
+                baseline=len(baseline_anomalies),
+                basic=len(basic_anomalies),
+                timeseries=len(ts_anomalies),
+                correlation=len(corr_anomalies)
+            )
+        
+        # 12. Create incident if critical anomalies detected
+        critical_anomalies = [
+            a for a in all_anomalies
+            if a.severity in ["critical", "high"]
+        ]
         
         if critical_anomalies:
             incident = await self._create_incident(logs, critical_anomalies)
             if incident:
                 self.incidents.append(incident)
                 self.state.incidents_created += 1
+                
+                confidence = adaptive_baseline.get_confidence()
+                
                 logger.warning(
-                    "Incident created",
+                    "Incident created with ML detection",
                     incident_id=incident.id,
                     severity=incident.severity,
-                    anomaly_count=len(critical_anomalies)
+                    anomaly_count=len(critical_anomalies),
+                    baseline_confidence=confidence,
+                    anomaly_types=[a.anomaly_type for a in critical_anomalies]
                 )
+        else:
+            logger.debug(
+                "Cycle complete - system healthy",
+                total_anomalies=len(all_anomalies),
+                baseline_confidence=adaptive_baseline.get_confidence()
+            )
         
-        # 5. Update state
+        # 13. Update state
         self.state.last_check = check_start
         self.state.status = "healthy"
     
@@ -108,7 +238,7 @@ class LogMonitor:
         logs: List[dict],
         anomalies: List
     ) -> Optional[Incident]:
-        """Create incident from anomalies"""
+        """Create incident from anomalies with ML context"""
         
         # Get error logs
         error_logs = [
@@ -123,19 +253,36 @@ class LogMonitor:
             if service:
                 services.add(service)
         
-        # Determine severity (highest from anomalies)
+        # Determine severity
         severity_order = {"low": 1, "medium": 2, "high": 3, "critical": 4}
         max_severity = max(anomalies, key=lambda a: severity_order[a.severity]).severity
         
         # Create title
-        anomaly_types = [a.anomaly_type for a in anomalies]
-        title = f"Incident: {', '.join(set(anomaly_types))}"
+        anomaly_types = list(set(a.anomaly_type for a in anomalies))
+        title = f"ML-Detected Incident: {', '.join(anomaly_types[:3])}"
+        if len(anomaly_types) > 3:
+            title += f" (+{len(anomaly_types) - 3} more)"
         
-        # Create description
-        descriptions = [a.description for a in anomalies]
-        description = "\n".join(f"- {d}" for d in descriptions)
+        # Create description with ML context
+        descriptions = []
         
-        # Sample logs (first 5 errors)
+        # Add baseline context if available
+        baseline_anomalies = [a for a in anomalies if a.anomaly_type == "adaptive_baseline_deviation"]
+        if baseline_anomalies:
+            confidence = adaptive_baseline.get_confidence()
+            descriptions.append(
+                f"[BASELINE] System deviating from learned normal behavior (confidence: {confidence:.0%})"
+            )
+        
+        # Add other anomalies
+        for a in anomalies[:5]:
+            descriptions.append(f"[{a.severity.upper()}] {a.description}")
+        
+        description = "\n".join(descriptions)
+        if len(anomalies) > 5:
+            description += f"\n\n... and {len(anomalies) - 5} more anomalies"
+        
+        # Sample logs
         sample_log_entries = []
         for log in error_logs[:5]:
             sample_log_entries.append(LogEntry(
@@ -147,6 +294,25 @@ class LogMonitor:
                 namespace=log.get("kubernetes", {}).get("namespace")
             ))
         
+        # Metrics snapshot with ML context
+        baseline_summary = adaptive_baseline.get_summary()
+        
+        metrics_snapshot = {
+            "total_logs": len(logs),
+            "error_logs": len(error_logs),
+            "error_rate": len(error_logs) / len(logs) if logs else 0,
+            "anomaly_breakdown": {
+                a.anomaly_type: sum(1 for x in anomalies if x.anomaly_type == a.anomaly_type)
+                for a in anomalies
+            },
+            "ml_context": {
+                "baseline_confidence": baseline_summary['confidence'],
+                "baseline_samples": baseline_summary['total_samples'],
+                "hours_learned": baseline_summary['hours_with_data'],
+                "detection_methods": list(set(a.anomaly_type for a in anomalies))
+            }
+        }
+        
         incident = Incident(
             id=f"INC-{int(datetime.utcnow().timestamp())}",
             title=title,
@@ -157,16 +323,16 @@ class LogMonitor:
             affected_services=list(services),
             log_count=len(logs),
             error_count=len(error_logs),
-            sample_logs=sample_log_entries
+            sample_logs=sample_log_entries,
+            metrics_snapshot=metrics_snapshot
         )
         
         logger.info(
-            "Incident created",
+            "ML-powered incident created",
             incident_id=incident.id,
-            title=incident.title,
             severity=incident.severity,
-            error_count=len(error_logs),
-            services=list(services)
+            ml_confidence=baseline_summary['confidence'],
+            detection_types=anomaly_types
         )
         
         return incident
@@ -178,6 +344,30 @@ class LogMonitor:
     def get_recent_incidents(self, limit: int = 10) -> List[Incident]:
         """Get recent incidents"""
         return self.incidents[-limit:]
+    
+    def get_statistics(self) -> dict:
+        """Get monitoring statistics with ML metrics"""
+        baseline_summary = adaptive_baseline.get_summary()
+        
+        return {
+            "monitoring": {
+                "total_checks": self.check_count,
+                "logs_processed": self.state.logs_processed,
+                "anomalies_detected": self.state.anomalies_detected,
+                "incidents_created": self.state.incidents_created,
+                "status": self.state.status,
+                "last_check": self.state.last_check.isoformat()
+            },
+            "ml_baseline": {
+                "confidence": baseline_summary['confidence'],
+                "total_samples": baseline_summary['total_samples'],
+                "history_size": baseline_summary['history_size'],
+                "hours_with_data": baseline_summary['hours_with_data'],
+                "days_with_data": baseline_summary['days_with_data'],
+                "overall_baseline": baseline_summary['overall']
+            },
+            "uptime_seconds": (datetime.utcnow() - self.state.last_check).total_seconds()
+        }
 
 
 # Global monitor instance

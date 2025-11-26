@@ -277,3 +277,220 @@ if __name__ == "__main__":
         reload=settings.debug,
         log_level="info"
     )
+
+
+@app.get("/api/advanced/timeseries")
+async def get_timeseries_data() -> Dict[str, Any]:
+    """Get time-series analysis data"""
+    from monitors.advanced.timeseries_analyzer import ts_analyzer
+    
+    return {
+        "error_rate_history": list(ts_analyzer.error_rate_history),
+        "log_volume_history": list(ts_analyzer.log_volume_history),
+        "window_size": ts_analyzer.window_size,
+        "data_points": len(ts_analyzer.error_rate_history)
+    }
+
+
+@app.get("/api/advanced/patterns")
+async def detect_patterns() -> Dict[str, Any]:
+    """Manually trigger pattern detection"""
+    from monitors.advanced.timeseries_analyzer import ts_analyzer
+    
+    anomalies = ts_analyzer.analyze_patterns()
+    
+    return {
+        "patterns_detected": len(anomalies),
+        "patterns": [
+            {
+                "type": a.anomaly_type,
+                "severity": a.severity,
+                "score": a.score,
+                "description": a.description,
+                "metrics": a.metrics
+            }
+            for a in anomalies
+        ]
+    }
+
+
+@app.get("/api/advanced/correlations")
+async def get_correlations() -> Dict[str, Any]:
+    """Get correlation analysis results"""
+    
+    # Get recent logs
+    logs = await es_client.search_logs(
+        query={"range": {"@timestamp": {"gte": "now-10m"}}},
+        size=500
+    )
+    
+    from monitors.advanced.correlation_engine import correlation_engine
+    
+    correlations = correlation_engine.analyze_correlations(logs)
+    
+    return {
+        "correlations_found": len(correlations),
+        "logs_analyzed": len(logs),
+        "correlations": [
+            {
+                "type": c.anomaly_type,
+                "severity": c.severity,
+                "score": c.score,
+                "description": c.description,
+                "metrics": c.metrics
+            }
+            for c in correlations
+        ]
+    }
+
+
+@app.get("/api/ml/baseline")
+async def get_baseline_info() -> Dict[str, Any]:
+    """Get adaptive baseline information"""
+    from monitors.advanced.adaptive_baseline import adaptive_baseline
+    
+    summary = adaptive_baseline.get_summary()
+    confidence = adaptive_baseline.get_confidence()
+    
+    # Get current expected baseline
+    expected = adaptive_baseline.get_expected_baseline()
+    
+    return {
+        "confidence": confidence,
+        "total_samples": summary['total_samples'],
+        "history_size": summary['history_size'],
+        "hours_with_data": summary['hours_with_data'],
+        "days_with_data": summary['days_with_data'],
+        "current_expected_baseline": {
+            "error_rate": {
+                "mean": expected['error_rate']['mean'],
+                "std": expected['error_rate']['std'],
+                "samples": expected['error_rate']['samples']
+            },
+            "log_volume": {
+                "mean": expected['log_volume']['mean'],
+                "std": expected['log_volume']['std'],
+                "samples": expected['log_volume']['samples']
+            }
+        },
+        "overall_baseline": summary['overall']
+    }
+
+
+@app.get("/api/ml/hourly-patterns")
+async def get_hourly_patterns() -> Dict[str, Any]:
+    """Get learned hourly patterns"""
+    from monitors.advanced.adaptive_baseline import adaptive_baseline
+    
+    patterns = {}
+    
+    for hour in range(24):
+        baseline = adaptive_baseline.hourly_baselines[hour]
+        if baseline['error_rate']['samples'] >= 5:
+            patterns[hour] = {
+                "error_rate_mean": baseline['error_rate']['mean'],
+                "log_volume_mean": baseline['log_volume']['mean'],
+                "samples": baseline['error_rate']['samples']
+            }
+    
+    return {
+        "patterns": patterns,
+        "hours_learned": len(patterns),
+        "current_hour": datetime.utcnow().hour
+    }
+
+
+@app.post("/api/ml/check-anomaly")
+async def check_if_anomalous(
+    error_rate: float,
+    log_volume: int
+) -> Dict[str, Any]:
+    """Manually check if values are anomalous"""
+    from monitors.advanced.adaptive_baseline import adaptive_baseline
+    
+    is_anomalous, details = adaptive_baseline.is_anomalous(
+        error_rate=error_rate,
+        log_volume=log_volume
+    )
+    
+    return {
+        "is_anomalous": is_anomalous,
+        "details": details,
+        "confidence": adaptive_baseline.get_confidence()
+    }
+
+
+@app.get("/api/ml/baseline")
+async def get_baseline_info() -> Dict[str, Any]:
+    """Get adaptive baseline information"""
+    from monitors.advanced.adaptive_baseline import adaptive_baseline
+    
+    summary = adaptive_baseline.get_summary()
+    confidence = adaptive_baseline.get_confidence()
+    
+    # Get current expected baseline
+    expected = adaptive_baseline.get_expected_baseline()
+    
+    return {
+        "confidence": confidence,
+        "total_samples": summary['total_samples'],
+        "history_size": summary['history_size'],
+        "hours_with_data": summary['hours_with_data'],
+        "days_with_data": summary['days_with_data'],
+        "current_expected_baseline": {
+            "error_rate": {
+                "mean": expected['error_rate']['mean'],
+                "std": expected['error_rate']['std'],
+                "samples": expected['error_rate']['samples']
+            },
+            "log_volume": {
+                "mean": expected['log_volume']['mean'],
+                "std": expected['log_volume']['std'],
+                "samples": expected['log_volume']['samples']
+            }
+        },
+        "overall_baseline": summary['overall']
+    }
+
+
+@app.get("/api/ml/hourly-patterns")
+async def get_hourly_patterns() -> Dict[str, Any]:
+    """Get learned hourly patterns"""
+    from monitors.advanced.adaptive_baseline import adaptive_baseline
+    
+    patterns = {}
+    
+    for hour in range(24):
+        baseline = adaptive_baseline.hourly_baselines[hour]
+        if baseline['error_rate']['samples'] >= 5:
+            patterns[hour] = {
+                "error_rate_mean": baseline['error_rate']['mean'],
+                "log_volume_mean": baseline['log_volume']['mean'],
+                "samples": baseline['error_rate']['samples']
+            }
+    
+    return {
+        "patterns": patterns,
+        "hours_learned": len(patterns),
+        "current_hour": datetime.utcnow().hour
+    }
+
+
+@app.post("/api/ml/check-anomaly")
+async def check_if_anomalous(
+    error_rate: float,
+    log_volume: int
+) -> Dict[str, Any]:
+    """Manually check if values are anomalous"""
+    from monitors.advanced.adaptive_baseline import adaptive_baseline
+    
+    is_anomalous, details = adaptive_baseline.is_anomalous(
+        error_rate=error_rate,
+        log_volume=log_volume
+    )
+    
+    return {
+        "is_anomalous": is_anomalous,
+        "details": details,
+        "confidence": adaptive_baseline.get_confidence()
+    }
