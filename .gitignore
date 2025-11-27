@@ -46,3 +46,22 @@ tmp/
 temp/
 *.tmp
 k8s/ai-agent/secret.yaml
+
+# Secrets and sensitive files
+*.key
+*.pem
+.env
+secret.yaml
+*secret*.yaml
+k8s/*/secret.yaml
+k8s/**/secret.yaml
+
+# API keys
+anthropic_api_key.txt
+api_keys.txt
+
+# Data and databases
+*.db
+*.sqlite
+/data/
+baselines.json

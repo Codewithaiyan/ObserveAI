@@ -335,6 +335,33 @@ class LogMonitor:
             detection_types=anomaly_types
         )
         
+        
+        logger.info("Incident created - initiating RCA", incident_id=incident.id)
+        
+        # Perform RCA
+        try:
+            from ai_analysis.incident_analyzer import incident_analyzer
+            from models.incident import RootCauseAnalysis
+            
+            rca_result = await incident_analyzer.analyze_incident(incident)
+            
+            if rca_result:
+                incident.root_cause = rca_result.get('root_cause', '')
+                incident.recommendations = rca_result.get('immediate_actions', [])
+                incident.rca_analysis = RootCauseAnalysis(
+                    root_cause=rca_result.get('root_cause', ''),
+                    impact=rca_result.get('impact', ''),
+                    technical_explanation=rca_result.get('technical_explanation', ''),
+                    immediate_actions=rca_result.get('immediate_actions', []),
+                    prevention=rca_result.get('prevention', []),
+                    confidence=rca_result.get('confidence', 'Unknown'),
+                    analyzed_at=rca_result.get('analyzed_at', ''),
+                    full_analysis=rca_result.get('full_analysis', '')
+                )
+                logger.info("RCA completed", incident_id=incident.id)
+        except Exception as e:
+            logger.error("RCA failed", incident_id=incident.id, error=str(e))
+        
         return incident
     
     def get_state(self) -> MonitoringState:
