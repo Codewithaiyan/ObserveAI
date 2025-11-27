@@ -45,3 +45,4 @@ kubeconfig
 tmp/
 temp/
 *.tmp
+k8s/ai-agent/secret.yaml
