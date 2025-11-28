@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  namespace: observeai
+spec:
+  template:
+    spec:
+      containers:
+      - name: ai-agent
+        env:
+        - name: SLACK_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: ai-agent-alerts
+              key: slack-webhook-url
+              optional: true
+        - name: GENERIC_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: ai-agent-alerts
+              key: generic-webhook-url
+              optional: true

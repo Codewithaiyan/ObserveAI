@@ -2,7 +2,7 @@
 Configuration settings for AI Agent
 """
 from pydantic_settings import BaseSettings
-from typing import Optional, List
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -38,12 +38,6 @@ class Settings(BaseSettings):
     high_error_threshold: int = 10  # errors in time window
     anomaly_score_threshold: float = 0.7
     
-    
-    # Alert Configuration
-    slack_webhook_url: Optional[str] = None
-    generic_webhook_url: Optional[str] = None
-    alert_on_severities: List[str] = ["high", "critical"]
-    alert_enabled: bool = True
     class Config:
         env_file = ".env"
         case_sensitive = False

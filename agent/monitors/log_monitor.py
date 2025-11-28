@@ -1,3 +1,4 @@
+from alerts.alert_manager import alert_manager
 """
 Continuous log monitoring with advanced detection and adaptive baseline
 """
@@ -362,7 +363,16 @@ class LogMonitor:
         except Exception as e:
             logger.error("RCA failed", incident_id=incident.id, error=str(e))
         
-        return incident
+
+        # Send alerts for incident
+        try:
+            await alert_manager.send_incident_alert(incident)
+            logger.info("Alert sent for incident", incident_id=incident.id)
+        except Exception as alert_err:
+            logger.error("Failed to send alert", incident_id=incident.id, error=str(alert_err))
+
+
+
     
     def get_state(self) -> MonitoringState:
         """Get current monitoring state"""

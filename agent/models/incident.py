@@ -26,6 +26,17 @@ class Anomaly(BaseModel):
     metrics: Dict[str, Any] = {}
 
 
+
+class RootCauseAnalysis(BaseModel):
+    """AI-powered root cause analysis result"""
+    root_cause: str
+    impact: str
+    technical_explanation: str
+    immediate_actions: List[str]
+    prevention: List[str]
+    confidence: str
+    analyzed_at: str
+    full_analysis: str
 class Incident(BaseModel):
     """Incident record"""
     id: Optional[str] = None
@@ -48,6 +59,9 @@ class Incident(BaseModel):
     # Root cause analysis (to be filled by LLM)
     root_cause: Optional[str] = None
     recommendations: List[str] = []
+    
+    # AI-powered root cause analysis
+    rca_analysis: Optional[RootCauseAnalysis] = None
     
     # Evidence
     sample_logs: List[LogEntry] = []

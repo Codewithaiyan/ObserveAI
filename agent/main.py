@@ -585,3 +585,119 @@ async def get_incident_rca(incident_id: str):
     from fastapi import HTTPException
     raise HTTPException(status_code=404, detail="Incident not found")
 
+
+
+# ============================================================================
+# ALERT ENDPOINTS
+# ============================================================================
+
+@app.get("/api/alerts/status")
+async def get_alert_status():
+    """Get alert system status and statistics"""
+    from alerts.alert_manager import alert_manager
+    
+    stats = alert_manager.get_statistics()
+    
+    return {
+        "alert_enabled": settings.alert_enabled,
+        "slack_configured": stats['slack_enabled'],
+        "webhook_configured": stats['webhook_enabled'],
+        "total_alerts_sent": stats['total_alerts_sent'],
+        "failed_alerts": stats['failed_alerts'],
+        "success_rate": f"{stats['success_rate']:.1%}",
+        "alert_severities": settings.alert_on_severities
+    }
+
+
+@app.get("/api/alerts/history")
+async def get_alert_history(limit: int = 10):
+    """Get recent alert history"""
+    from alerts.alert_manager import alert_manager
+    
+    history = alert_manager.get_recent_alerts(limit=limit)
+    
+    return {
+        "alerts": [
+            {
+                "incident_id": alert['incident_id'],
+                "severity": alert['severity'],
+                "timestamp": alert['timestamp'].isoformat(),
+                "success": alert['success']
+            }
+            for alert in history
+        ],
+        "total": len(history)
+    }
+
+
+@app.post("/api/alerts/test")
+async def test_alert():
+    """Send a test alert to verify configuration"""
+    from alerts.alert_manager import alert_manager
+    from models.incident import Incident, Anomaly, LogEntry
+    from datetime import datetime
+    
+    # Create test incident
+    test_incident = Incident(
+        id="TEST-ALERT-001",
+        title="Test Alert: System Check",
+        description="This is a test alert to verify webhook configuration",
+        severity="high",
+        started_at=datetime.utcnow(),
+        log_count=100,
+        error_count=25,
+        affected_services=["test-service"],
+        sample_logs=[
+            LogEntry(
+                timestamp=datetime.utcnow().isoformat(),
+                level="ERROR",
+                message="Test error message for alert verification",
+                service="test-service"
+            )
+        ],
+        anomalies=[
+            Anomaly(
+                anomaly_type="test_anomaly",
+                severity="high",
+                score=0.85,
+                description="Test anomaly for alert verification"
+            )
+        ]
+    )
+    
+    # Try to send alert
+    success = await alert_manager.send_incident_alert(test_incident)
+    
+    if success:
+        return {
+            "status": "success",
+            "message": "Test alert sent successfully",
+            "incident_id": test_incident.id,
+            "channels": {
+                "slack": alert_manager.slack_webhook_url is not None,
+                "webhook": alert_manager.generic_webhook_url is not None
+            }
+        }
+    else:
+        return {
+            "status": "failed",
+            "message": "Test alert failed to send. Check configuration and logs.",
+            "incident_id": test_incident.id
+        }
+
+
+@app.get("/api/alerts/config")
+async def get_alert_config():
+    """Get current alert configuration (without sensitive data)"""
+    return {
+        "alert_enabled": settings.alert_enabled,
+        "alert_on_severities": settings.alert_on_severities,
+        "slack_configured": bool(settings.slack_webhook_url),
+        "webhook_configured": bool(settings.generic_webhook_url),
+        "slack_webhook_url": (
+            settings.slack_webhook_url[:50] + "..." 
+            if settings.slack_webhook_url 
+            else None
+        )
+    }
+

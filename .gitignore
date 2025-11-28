@@ -65,3 +65,9 @@ api_keys.txt
 *.sqlite
 /data/
 baselines.json
+
+# Alert secrets
+secret-alerts.yaml
+k8s/*/secret-alerts.yaml
+slack_webhook.txt
+webhook_urls.txt
