@@ -371,6 +371,12 @@ class LogMonitor:
         except Exception as alert_err:
             logger.error("Failed to send alert", incident_id=incident.id, error=str(alert_err))
 
+        # Store incident
+        self.incidents.append(incident)
+        self.state.incidents_created += 1
+        
+        return incident
+
 
 
     
